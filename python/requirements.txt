@@ -1,0 +1,4 @@
+cryptography==44.0.2
+paho-mqtt==2.1.0
+protobug==0.2.0
+meshtastic~=2.5.12
