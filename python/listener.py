@@ -13,49 +13,65 @@ from meshtastic.protobuf.portnums_pb2 import PortNum
 DEFAULT_KEY = "1PG7OiApB1nwvP+rz05pAQ=="
 
 
-def decrypt(data: bytes, packet_id: int, source_id: int, key: str) -> bytes:
-    # Expand the default key
-    if key == "AQ==":
-        key = DEFAULT_KEY
+class PacketHandler:
+    def __init__(self, message_type: str):
+        self.message_type = message_type
 
-    # Convert key to bytes
-    key_bytes = base64.b64decode(key.encode("ascii"))
-    nonce = struct.pack("<IIII", packet_id, 0, source_id, 0)
-    cipher = Cipher(algorithms.AES(key_bytes), modes.CTR(nonce), backend=default_backend())
-    decryptor = cipher.decryptor()
-    decrypted_bytes = decryptor.update(data) + decryptor.finalize()
-    return decrypted_bytes
+    @staticmethod
+    def decrypt(data: bytes, packet_id: int, source_id: int, key: str) -> bytes:
+        # Expand the default key
+        if key == "AQ==":
+            key = DEFAULT_KEY
 
+        # Convert key to bytes
+        key_bytes = base64.b64decode(key)
+        nonce = struct.pack("<IIII", packet_id, 0, source_id, 0)
+        cipher = Cipher(algorithms.AES(key_bytes), modes.CTR(nonce), backend=default_backend())
+        decryptor = cipher.decryptor()
+        decrypted_bytes = decryptor.update(data) + decryptor.finalize()
+        return decrypted_bytes
 
-def decode_packet(packet: meshtastic.mesh_pb2.MeshPacket) -> meshtastic.mesh_pb2.Data:
-    if packet.encrypted:
-        print(f"(encrypted): {packet.encrypted}")
-        source_id = getattr(packet, "from")
-        decrypted = decrypt(packet.encrypted, packet.id, source_id, "AQ==")
-        data = meshtastic.mesh_pb2.Data()
-        data.ParseFromString(decrypted)
-        return data
-    print(f"(plaintext): {packet.decoded.payload}")
-    return packet.decoded
+    def decode_packet(self, packet: meshtastic.mesh_pb2.MeshPacket) -> meshtastic.mesh_pb2.Data:
+        if packet.encrypted:
+            # print(f"(encrypted): {packet.encrypted}")
+            source_id = getattr(packet, "from")
+            decrypted = self.decrypt(packet.encrypted, packet.id, source_id, "AQ==")
+            data = meshtastic.mesh_pb2.Data()
+            data.ParseFromString(decrypted)
+            return data
+        # print(f"(plaintext): {packet.decoded.payload}")
+        return packet.decoded
 
-
-def handle_packet(data: bytes) -> None:
-    se = meshtastic.mqtt_pb2.ServiceEnvelope()
-    se.ParseFromString(data)
-    meshdata = decode_packet(se.packet)
-    if meshdata:
-        print(f"meshdata={meshdata}")
+    def log_meshdata(self, meshdata):
         match meshdata.portnum:
-            # case PortNum.POSITION_APP:
-            #     position = meshtastic.mesh_pb2.Position()
-            #     position.ParseFromString(decoded.payload)
-            #     print(f"{position}")
+            case PortNum.POSITION_APP:
+                position = meshtastic.mesh_pb2.Position()
+                position.ParseFromString(meshdata.payload)
+                print(f"POSITION_APP={position}")
             case PortNum.TEXT_MESSAGE_APP:
                 print(f"TEXT_MESSAGE_APP={meshdata.payload}")
             case PortNum.NODEINFO_APP:
                 user = meshtastic.mesh_pb2.User()
                 user.ParseFromString(meshdata.payload)
                 print(f"NODEINFO_APP={user}")
+            case PortNum.TELEMETRY_APP:
+                telemetry = meshtastic.telemetry_pb2.Telemetry()
+                telemetry.ParseFromString(meshdata.payload)
+                print(f"TELEMETRY_APP={telemetry}")
+            case PortNum.STORE_FORWARD_APP:
+                store_forward = meshtastic.storeforward_pb2.StoreAndForward()
+                store_forward.ParseFromString(meshdata.payload)
+                print(f"STORE_FORWARD_APP={store_forward}")
+            case _:
+                print(f"meshdata={meshdata}")
+
+    def handle_packet(self, data: bytes) -> None:
+        se = meshtastic.mqtt_pb2.ServiceEnvelope()
+        se.ParseFromString(data)
+        meshdata = self.decode_packet(se.packet)
+        if meshdata:
+            if self.message_type == '*' or int(self.message_type) == meshdata.portnum:
+                self.log_meshdata(meshdata)
 
 
 class MqttListener:
@@ -67,7 +83,8 @@ class MqttListener:
         self.client.on_message = self.on_message
         self.handle_packet = callback
 
-    def on_connect(self, client, userdata, flags, rc):
+    @staticmethod
+    def on_connect(client, _userdata, _flags, _rc):
         try:
             # msh/REGION/2/e/CHANNELNAME/USERID
             # see https://meshtastic.org/docs/software/integrations/mqtt/#mqtt-topics
@@ -77,7 +94,7 @@ class MqttListener:
         except Exception as e:
             print(e)
 
-    def on_message(self, client, userdata, msg):
+    def on_message(self, _client, _userdata, msg):
         try:
             self.handle_packet(msg.payload)
         except Exception as e:
@@ -99,9 +116,12 @@ def main():
                         default="boreft")
     parser.add_argument("-p", "--password", help="The MQTT password",
                         default="meshboreft")
+    parser.add_argument("-f", "--filter", help="Message type to log (portnum)",
+                        default="*")
     args = parser.parse_args()
 
-    listener = MqttListener(args.broker, args.username, args.password, handle_packet)
+    handler = PacketHandler(args.message)
+    listener = MqttListener(args.broker, args.username, args.password, handler.handle_packet)
     listener.run()
 
 
