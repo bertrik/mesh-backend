@@ -42,8 +42,9 @@ class PacketHandler:
         # print(f"(plaintext): {packet.decoded.payload}")
         return packet.decoded
 
-    def log_meshdata(self, meshdata):
+    def log_meshdata(self, packet, meshdata):
         payload = meshdata.payload
+        print(f"id: {packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
         match meshdata.portnum:
             case PortNum.TEXT_MESSAGE_APP:
                 print(f"TEXT_MESSAGE_APP={payload}")
@@ -80,7 +81,7 @@ class PacketHandler:
         meshdata = self.decode_packet(se.packet)
         if meshdata:
             if self.message_type == '*' or int(self.message_type) == meshdata.portnum:
-                self.log_meshdata(meshdata)
+                self.log_meshdata(se.packet, meshdata)
 
 
 class MqttListener:
