@@ -43,25 +43,34 @@ class PacketHandler:
         return packet.decoded
 
     def log_meshdata(self, meshdata):
+        payload = meshdata.payload
         match meshdata.portnum:
+            case PortNum.TEXT_MESSAGE_APP:
+                print(f"TEXT_MESSAGE_APP={payload}")
             case PortNum.POSITION_APP:
                 position = meshtastic.mesh_pb2.Position()
-                position.ParseFromString(meshdata.payload)
+                position.ParseFromString(payload)
                 print(f"POSITION_APP={position}")
-            case PortNum.TEXT_MESSAGE_APP:
-                print(f"TEXT_MESSAGE_APP={meshdata.payload}")
             case PortNum.NODEINFO_APP:
                 user = meshtastic.mesh_pb2.User()
-                user.ParseFromString(meshdata.payload)
+                user.ParseFromString(payload)
                 print(f"NODEINFO_APP={user}")
-            case PortNum.TELEMETRY_APP:
-                telemetry = meshtastic.telemetry_pb2.Telemetry()
-                telemetry.ParseFromString(meshdata.payload)
-                print(f"TELEMETRY_APP={telemetry}")
+            case PortNum.ROUTING_APP:
+                routing = meshtastic.mesh_pb2.Routing
+                routing.ParseFromString(payload)
+                print(f"ROUTING_APP={routing}")
             case PortNum.STORE_FORWARD_APP:
                 store_forward = meshtastic.storeforward_pb2.StoreAndForward()
-                store_forward.ParseFromString(meshdata.payload)
+                store_forward.ParseFromString(payload)
                 print(f"STORE_FORWARD_APP={store_forward}")
+            case PortNum.TELEMETRY_APP:
+                telemetry = meshtastic.telemetry_pb2.Telemetry()
+                telemetry.ParseFromString(payload)
+                print(f"TELEMETRY_APP={telemetry}")
+            case PortNum.NEIGHBORINFO_APP:
+                neighbour = meshtastic.mesh_pb2.Neighbor()
+                neighbour.ParseFromString(payload)
+                print(f"NEIGHBORINFO_APP={neighbour}")
             case _:
                 print(f"meshdata={meshdata}")
 
