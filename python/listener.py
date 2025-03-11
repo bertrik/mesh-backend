@@ -7,6 +7,8 @@ import meshtastic
 import paho.mqtt.client
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from meshtastic.protobuf.mesh_pb2 import MeshPacket
+from meshtastic.protobuf.mqtt_pb2 import ServiceEnvelope
 from meshtastic.protobuf.portnums_pb2 import PortNum
 
 # actually d4f1bb3a20290759f0bcffabcf4e6901 in hex
@@ -14,35 +16,36 @@ DEFAULT_KEY = "1PG7OiApB1nwvP+rz05pAQ=="
 
 
 class PacketHandler:
-    def __init__(self, message_type: str):
+    def __init__(self, message_type: str, base64key: str):
         self.message_type = message_type
+        self.key = self.create_key(base64key)
+        print(f'Decryption key = {self.key.hex():032s}')
 
     @staticmethod
-    def decrypt(data: bytes, packet_id: int, source_id: int, key: str) -> bytes:
-        # Expand the default key
-        if key == "AQ==":
-            key = DEFAULT_KEY
+    def create_key(base64key: str) -> bytes:
+        default_key_bytes = base64.b64decode(DEFAULT_KEY)
+        key_bytes = base64.b64decode(base64key)
+        return default_key_bytes[0:16 - len(key_bytes)] + key_bytes
 
-        # Convert key to bytes
-        key_bytes = base64.b64decode(key)
-        nonce = struct.pack("<IIII", packet_id, 0, source_id, 0)
-        cipher = Cipher(algorithms.AES(key_bytes), modes.CTR(nonce), backend=default_backend())
+    def decrypt(self, data: bytes, packet_id: int, source_id: int, extra_nonce: int) -> bytes:
+        nonce = struct.pack("<IIII", packet_id, 0, source_id, extra_nonce)
+        cipher = Cipher(algorithms.AES(self.key), modes.CTR(nonce), backend=default_backend())
         decryptor = cipher.decryptor()
         decrypted_bytes = decryptor.update(data) + decryptor.finalize()
         return decrypted_bytes
 
-    def decode_packet(self, packet: meshtastic.mesh_pb2.MeshPacket) -> meshtastic.mesh_pb2.Data:
+    def decode_packet(self, packet: MeshPacket) -> meshtastic.mesh_pb2.Data:
         if packet.encrypted:
             # print(f"(encrypted): {packet.encrypted}")
             source_id = getattr(packet, "from")
-            decrypted = self.decrypt(packet.encrypted, packet.id, source_id, "AQ==")
+            decrypted = self.decrypt(packet.encrypted, packet.id, source_id, 0)
             data = meshtastic.mesh_pb2.Data()
             data.ParseFromString(decrypted)
             return data
         # print(f"(plaintext): {packet.decoded.payload}")
         return packet.decoded
 
-    def log_meshdata(self, packet, meshdata):
+    def log_meshdata(self, packet: MeshPacket, meshdata):
         payload = meshdata.payload
         print(f"id: {packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
         match meshdata.portnum:
@@ -76,7 +79,7 @@ class PacketHandler:
                 print(f"meshdata={meshdata}")
 
     def handle_packet(self, data: bytes) -> None:
-        se = meshtastic.mqtt_pb2.ServiceEnvelope()
+        se = ServiceEnvelope()
         se.ParseFromString(data)
         meshdata = self.decode_packet(se.packet)
         if meshdata:
@@ -128,9 +131,11 @@ def main():
                         default="meshboreft")
     parser.add_argument("-f", "--filter", help="Message type to log (portnum)",
                         default="*")
+    parser.add_argument("-k", "--key", help="Decryption key (base64)",
+                        default="AQ==")
     args = parser.parse_args()
 
-    handler = PacketHandler(args.filter)
+    handler = PacketHandler(args.filter, args.key)
     listener = MqttListener(args.broker, args.username, args.password, handler.handle_packet)
     listener.run()
 
