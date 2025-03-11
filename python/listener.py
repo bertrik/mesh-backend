@@ -120,7 +120,7 @@ def main():
                         default="*")
     args = parser.parse_args()
 
-    handler = PacketHandler(args.message)
+    handler = PacketHandler(args.filter)
     listener = MqttListener(args.broker, args.username, args.password, handler.handle_packet)
     listener.run()
 
