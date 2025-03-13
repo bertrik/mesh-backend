@@ -45,7 +45,8 @@ class PacketHandler:
         # print(f"(plaintext): {packet.decoded.payload}")
         return packet.decoded
 
-    def log_meshdata(self, packet: MeshPacket, meshdata):
+    @staticmethod
+    def log_meshdata(packet: MeshPacket, meshdata) -> None:
         payload = meshdata.payload
         print(f"id: {packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
         match meshdata.portnum:
@@ -60,9 +61,13 @@ class PacketHandler:
                 user.ParseFromString(payload)
                 print(f"NODEINFO_APP={user}")
             case PortNum.ROUTING_APP:
-                routing = meshtastic.mesh_pb2.Routing
+                routing = meshtastic.mesh_pb2.Routing()
                 routing.ParseFromString(payload)
                 print(f"ROUTING_APP={routing}")
+            case PortNum.PAXCOUNTER_APP:
+                paxcount = meshtastic.paxcount_pb2.Paxcount()
+                paxcount.ParseFromString(payload)
+                print(f"PAXCOUNTER_APP={paxcount}")
             case PortNum.STORE_FORWARD_APP:
                 store_forward = meshtastic.storeforward_pb2.StoreAndForward()
                 store_forward.ParseFromString(payload)
