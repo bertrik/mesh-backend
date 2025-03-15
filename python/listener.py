@@ -3,6 +3,7 @@ import argparse
 import base64
 import struct
 
+import google.protobuf
 import meshtastic
 import paho.mqtt.client
 from cryptography.hazmat.backends import default_backend
@@ -40,7 +41,11 @@ class PacketHandler:
             source_id = getattr(packet, "from")
             decrypted = self.decrypt(packet.encrypted, packet.id, source_id, 0)
             data = meshtastic.mesh_pb2.Data()
-            data.ParseFromString(decrypted)
+            try:
+                data.ParseFromString(decrypted)
+            except google.protobuf.message.DecodeError:
+                print(f"Decode error, data: {packet.encrypted.hex()}")
+                data = None
             return data
         # print(f"(plaintext): {packet.decoded.payload}")
         return packet.decoded
@@ -107,7 +112,7 @@ class MqttListener:
             # msh/REGION/2/e/CHANNELNAME/USERID
             # see https://meshtastic.org/docs/software/integrations/mqtt/#mqtt-topics
             topic = "msh/+/2/e/+/+"
-            print(f"Subscribing to uplink topic {topic}...")
+            print(f"Connected, subscribing to uplink topic {topic}...")
             client.subscribe(topic)
         except Exception as e:
             print(e)
@@ -121,8 +126,7 @@ class MqttListener:
     def run(self):
         print(f"Connecting to '{self.broker}' ...")
         self.client.connect(self.broker)
-        while True:
-            self.client.loop()
+        self.client.loop_forever()
 
 
 def main():
