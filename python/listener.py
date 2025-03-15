@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import logging
 import struct
 
 import google.protobuf
 import meshtastic
 import paho.mqtt.client
+import protobug
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from meshtastic.protobuf.mesh_pb2 import MeshPacket
@@ -14,13 +16,14 @@ from meshtastic.protobuf.portnums_pb2 import PortNum
 
 # actually d4f1bb3a20290759f0bcffabcf4e6901 in hex
 DEFAULT_KEY = "1PG7OiApB1nwvP+rz05pAQ=="
+logger = logging.getLogger(__name__)
 
 
 class PacketHandler:
     def __init__(self, message_type: str, base64key: str):
         self.message_type = message_type
         self.key = self.create_key(base64key)
-        print(f'Decryption key = {self.key.hex():032s}')
+        logger.info(f'Decryption key = {self.key.hex():032s}')
 
     @staticmethod
     def create_key(base64key: str) -> bytes:
@@ -44,16 +47,15 @@ class PacketHandler:
             try:
                 data.ParseFromString(decrypted)
             except google.protobuf.message.DecodeError:
-                print(f"Decode error, data: {packet.encrypted.hex()}")
+                logger.warning(f"Decode error, data: {packet.encrypted.hex()}")
                 data = None
             return data
         # print(f"(plaintext): {packet.decoded.payload}")
         return packet.decoded
 
     @staticmethod
-    def log_meshdata(packet: MeshPacket, meshdata) -> None:
+    def log_meshdata(meshdata: meshtastic.mesh_pb2.Data) -> None:
         payload = meshdata.payload
-        print(f"id: {packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
         match meshdata.portnum:
             case PortNum.TEXT_MESSAGE_APP:
                 print(f"TEXT_MESSAGE_APP={payload}")
@@ -91,10 +93,12 @@ class PacketHandler:
     def handle_packet(self, data: bytes) -> None:
         se = ServiceEnvelope()
         se.ParseFromString(data)
-        meshdata = self.decode_packet(se.packet)
+        packet = se.packet
+        meshdata = self.decode_packet(packet)
         if meshdata:
             if self.message_type == '*' or int(self.message_type) == meshdata.portnum:
-                self.log_meshdata(se.packet, meshdata)
+                logger.info(f"Got packet: id={packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
+                self.log_meshdata(meshdata)
 
 
 class MqttListener:
@@ -112,7 +116,7 @@ class MqttListener:
             # msh/REGION/2/e/CHANNELNAME/USERID
             # see https://meshtastic.org/docs/software/integrations/mqtt/#mqtt-topics
             topic = "msh/+/2/e/+/+"
-            print(f"Connected, subscribing to uplink topic {topic}...")
+            logger.info(f"Connected, subscribing to uplink topic {topic}...")
             client.subscribe(topic)
         except Exception as e:
             print(e)
@@ -121,10 +125,10 @@ class MqttListener:
         try:
             self.handle_packet(msg.payload)
         except Exception as e:
-            print(f"Caught exception: {e}")
+            logger.warning(f"Caught exception: {e}")
 
     def run(self):
-        print(f"Connecting to '{self.broker}' ...")
+        logger.info(f"Connecting to '{self.broker}' ...")
         self.client.connect(self.broker)
         self.client.loop_forever()
 
@@ -143,6 +147,8 @@ def main():
     parser.add_argument("-k", "--key", help="Decryption key (base64)",
                         default="AQ==")
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)-8s: %(message)s")
 
     handler = PacketHandler(args.filter, args.key)
     listener = MqttListener(args.broker, args.username, args.password, handler.handle_packet)
