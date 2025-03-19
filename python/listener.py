@@ -46,8 +46,8 @@ class PacketHandler:
             data = meshtastic.mesh_pb2.Data()
             try:
                 data.ParseFromString(decrypted)
-            except google.protobuf.message.DecodeError:
-                logger.warning(f"Decode error, data: {packet.encrypted.hex()}")
+            except google.protobuf.message.DecodeError as e:
+                logger.warning(f"Decode error '{e}', data: {packet.encrypted.hex()}")
                 data = None
             return data
         # print(f"(plaintext): {packet.decoded.payload}")
