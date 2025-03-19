@@ -6,8 +6,7 @@ import struct
 
 import google.protobuf
 import meshtastic
-import paho.mqtt.client
-import protobug
+import paho.mqtt.client as mqtt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from meshtastic.protobuf.mesh_pb2 import MeshPacket
@@ -104,14 +103,14 @@ class PacketHandler:
 class MqttListener:
     def __init__(self, broker: str, username: str, password: str, callback):
         self.broker = broker
-        self.client = paho.mqtt.client.Client()
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.client.username_pw_set(username, password)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         self.handle_packet = callback
 
     @staticmethod
-    def on_connect(client, _userdata, _flags, _rc):
+    def on_connect(client, _userdata, _flags, _rc, _properties):
         try:
             # msh/REGION/2/e/CHANNELNAME/USERID
             # see https://meshtastic.org/docs/software/integrations/mqtt/#mqtt-topics
