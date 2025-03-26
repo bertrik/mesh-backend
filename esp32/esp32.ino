@@ -88,11 +88,28 @@ static size_t fill_header(uint8_t *buffer, uint32_t source, uint32_t packet_id, 
     return p - buffer;
 }
 
-static size_t wrap_protobuf(uint8_t *buffer, uint8_t portnum, const uint8_t *data, size_t len)
+static size_t pbwrap_text(uint8_t *buffer, const char *text)
+{
+    uint8_t len = strlen(text);
+
+    uint8_t *p = buffer;
+    *p++ = 0x08;                // portnum = 1
+    *p++ = 0x01;
+    *p++ = 0x12;                // payload = byte array
+    *p++ = len;
+    memcpy(p, text, len);
+    p += len;
+    *p++ = 0x48;                // bitfield = OK-to-MQTT
+    *p++ = 0x01;
+    return p - buffer;
+}
+
+static size_t pbwrap_data(uint8_t *buffer, const uint8_t *data, size_t len)
 {
     uint8_t *p = buffer;
-    *p++ = 0x08;                // portnum
-    *p++ = portnum;
+    *p++ = 0x08;                // portnum = 256
+    *p++ = 0x80;
+    *p++ = 0x02;
     *p++ = 0x12;                // payload = byte array
     *p++ = len;
     memcpy(p, data, len);
@@ -126,19 +143,13 @@ static size_t encrypt(uint8_t *output, const uint8_t *input, size_t len, const u
     return len;
 }
 
-static bool send_data(const uint8_t *data, size_t data_len, uint32_t source, uint32_t packet_id)
+static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t source, uint32_t packet_id)
 {
     uint8_t packet[256];
     uint8_t nonce[16];
-    uint8_t pb_buf[256];
 
-    printf("Raw data:");
-    printhex(data, data_len);
-
-    // build protobuf payload
-    size_t pb_len = wrap_protobuf(pb_buf, 1, data, data_len);
-    printf("Protobuf:");
-    printhex(pb_buf, pb_len);
+    printf("Protobuf data:");
+    printhex(pb_data, pb_len);
 
     // build header
     uint8_t *p = packet;
@@ -146,11 +157,11 @@ static bool send_data(const uint8_t *data, size_t data_len, uint32_t source, uin
 
     // append encrypted protobuf 
     build_nonce(nonce, packet_id, source, 0);
-    p += encrypt(p, pb_buf, pb_len, DEFAULT_KEY, nonce);
+    p += encrypt(p, pb_data, pb_len, DEFAULT_KEY, nonce);
 
     // send buffer
     size_t len = p - packet;
-    printf("Radio buffer:");
+    printf("Radio data:");
     printhex(packet, len);
     if (LoRa.beginPacket(false)) {
         LoRa.write(packet, len);
@@ -170,6 +181,7 @@ static int do_init(int argc, char *argv[])
 
 static int do_text(int argc, char *argv[])
 {
+    uint8_t pb_buf[256];
     char message[128];
 
     const char *text;
@@ -181,9 +193,26 @@ static int do_text(int argc, char *argv[])
         text = message;
     }
 
-    size_t len = strlen(text);
+    size_t pb_len = pbwrap_text(pb_buf, text);
+
     uint32_t source = 0xDA639BBB;
-    return send_data((const uint8_t *) text, len, source, packet_id) ? 0 : -1;
+    return send_data(pb_buf, pb_len, source, packet_id) ? 0 : -1;
+}
+
+static int do_data(int argc, char *argv[])
+{
+    uint8_t data[200];
+    uint8_t pb_buf[256];
+    size_t len = (argc > 1) ? atoi(argv[1]) : 20;
+
+    for (int i = 0; i < len; i++) {
+        data[i] = i;
+    }
+
+    size_t pb_len = pbwrap_data(pb_buf, data, len);
+    uint32_t source = 0xDA639BBB;
+    uint32_t packet_id = packet_cnt++;
+    return send_data(pb_buf, pb_len, source, packet_id) ? 0 : -1;
 }
 
 static int do_dump(int argc, char *argv[])
@@ -195,7 +224,8 @@ static int do_dump(int argc, char *argv[])
 const cmd_t commands[] = {
     { "init", do_init, "Initialize hardware" },
     { "dump", do_dump, "Dump registers" },
-    { "text", do_text, "<text> send a text message" },
+    { "text", do_text, "[text] send a text message" },
+    { "data", do_data, "<len> sends len bytes" },
     { "reboot", do_reboot, "Reboot" },
     { "help", do_help, "Show help" },
     { NULL, NULL, NULL }
