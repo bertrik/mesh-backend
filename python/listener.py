@@ -86,6 +86,8 @@ class PacketHandler:
                 neighbour = meshtastic.mesh_pb2.Neighbor()
                 neighbour.ParseFromString(payload)
                 print(f"NEIGHBORINFO_APP={neighbour}")
+            case PortNum.PRIVATE_APP:
+                print(f"PRIVATE_APP={meshdata}")
             case _:
                 print(f"meshdata={meshdata}")
 
