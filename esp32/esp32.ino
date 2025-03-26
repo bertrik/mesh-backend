@@ -55,7 +55,7 @@ static bool lora_init(void)
         LoRa.setSyncWord(0x2B);
         LoRa.setPreambleLength(16);
         LoRa.enableCrc();
-        LoRa.disableInvertIQ();  // meshtastic doesn't specify! 
+        LoRa.disableInvertIQ();
     }
     return result;
 }
@@ -75,16 +75,30 @@ static size_t put_u8(uint8_t *buffer, uint8_t value)
     return 1;
 }
 
-static size_t fill_header(uint8_t *buffer, uint32_t source, uint32_t packet_id)
+static size_t fill_header(uint8_t *buffer, uint32_t source, uint32_t packet_id, uint8_t hop)
 {
     uint8_t *p = buffer;
     p += put_u32_le(p, 0xFFFFFFFF);     // destination
     p += put_u32_le(p, source);
     p += put_u32_le(p, packet_id);
-    p += put_u8(p, 3 | (3 << 5));          // flags
+    p += put_u8(p, hop | (hop << 5));   // flags
     p += put_u8(p, 8);          // hash
     p += put_u8(p, 0);          // next-hop
-    p += put_u8(p, source & 0xFF);          // relay-node
+    p += put_u8(p, source & 0xFF);      // relay-node
+    return p - buffer;
+}
+
+static size_t wrap_protobuf(uint8_t *buffer, uint8_t portnum, const uint8_t *data, size_t len)
+{
+    uint8_t *p = buffer;
+    *p++ = 0x08;                // portnum
+    *p++ = portnum;
+    *p++ = 0x12;                // payload = byte array
+    *p++ = len;
+    memcpy(p, data, len);
+    p += len;
+    *p++ = 0x48;                // bitfield = OK-to-MQTT
+    *p++ = 0x01;
     return p - buffer;
 }
 
@@ -112,29 +126,39 @@ static size_t encrypt(uint8_t *output, const uint8_t *input, size_t len, const u
     return len;
 }
 
-static void send_data(const uint8_t *data, size_t data_len, uint32_t source, uint32_t packet_id)
+static bool send_data(const uint8_t *data, size_t data_len, uint32_t source, uint32_t packet_id)
 {
     uint8_t packet[256];
     uint8_t nonce[16];
-    uint8_t *p = packet;
+    uint8_t pb_buf[256];
 
-    printf("Sending data:");
+    printf("Raw data:");
     printhex(data, data_len);
 
-    // build header
-    p += fill_header(p, source, packet_id);
+    // build protobuf payload
+    size_t pb_len = wrap_protobuf(pb_buf, 1, data, data_len);
+    printf("Protobuf:");
+    printhex(pb_buf, pb_len);
 
-    // encrypt payload and append
+    // build header
+    uint8_t *p = packet;
+    p += fill_header(p, source, packet_id, 3);
+
+    // append encrypted protobuf 
     build_nonce(nonce, packet_id, source, 0);
-    p += encrypt(p, data, data_len, DEFAULT_KEY, nonce);
+    p += encrypt(p, pb_buf, pb_len, DEFAULT_KEY, nonce);
 
     // send buffer
     size_t len = p - packet;
-    printf("Encoded buffer:");
+    printf("Radio buffer:");
     printhex(packet, len);
-    LoRa.beginPacket(false);
-    LoRa.write(data, len);
-    LoRa.endPacket(true);
+    if (LoRa.beginPacket(false)) {
+        LoRa.write(packet, len);
+        LoRa.endPacket(true);
+        return true;
+    }
+    printf("beginPacket failed!\n");
+    return false;
 }
 
 static int do_init(int argc, char *argv[])
@@ -146,17 +170,20 @@ static int do_init(int argc, char *argv[])
 
 static int do_text(int argc, char *argv[])
 {
-    const char *text = "Hallo dit is een testbericht";
+    char message[128];
+
+    const char *text;
+    uint32_t packet_id = packet_cnt++;
     if (argc > 1) {
         text = argv[1];
+    } else {
+        sprintf(message, "Test 0x%X!", packet_id);
+        text = message;
     }
 
     size_t len = strlen(text);
-    uint32_t source = 0xDA639B00;
-    uint32_t packet_id = packet_cnt++;
-    send_data((const uint8_t *) text, len, source, packet_id);
-
-    return 0;
+    uint32_t source = 0xDA639BBB;
+    return send_data((const uint8_t *) text, len, source, packet_id) ? 0 : -1;
 }
 
 static int do_dump(int argc, char *argv[])
@@ -166,8 +193,8 @@ static int do_dump(int argc, char *argv[])
 }
 
 const cmd_t commands[] = {
-    { "init", do_init, "Initialize hardware"},
-    { "dump", do_dump, "Dump registers"},
+    { "init", do_init, "Initialize hardware" },
+    { "dump", do_dump, "Dump registers" },
     { "text", do_text, "<text> send a text message" },
     { "reboot", do_reboot, "Reboot" },
     { "help", do_help, "Show help" },
