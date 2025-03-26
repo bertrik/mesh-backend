@@ -8,7 +8,7 @@
 #define printf Serial.printf
 
 static MiniShell shell(&Serial);
-static uint32_t packet_cnt = 0;
+static uint32_t packet_cnt = 0x12345678;
 
 static const uint8_t DEFAULT_KEY[] = {
     0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
@@ -81,10 +81,10 @@ static size_t fill_header(uint8_t *buffer, uint32_t source, uint32_t packet_id)
     p += put_u32_le(p, 0xFFFFFFFF);     // destination
     p += put_u32_le(p, source);
     p += put_u32_le(p, packet_id);
-    p += put_u8(p, 3);          // flags
-    p += put_u8(p, 0);          // hash
+    p += put_u8(p, 3 | (3 << 5));          // flags
+    p += put_u8(p, 8);          // hash
     p += put_u8(p, 0);          // next-hop
-    p += put_u8(p, 0);          // relay-node
+    p += put_u8(p, source & 0xFF);          // relay-node
     return p - buffer;
 }
 
@@ -134,7 +134,7 @@ static void send_data(const uint8_t *data, size_t data_len, uint32_t source, uin
     printhex(packet, len);
     LoRa.beginPacket(false);
     LoRa.write(data, len);
-    LoRa.endPacket();
+    LoRa.endPacket(true);
 }
 
 static int do_init(int argc, char *argv[])
@@ -152,7 +152,7 @@ static int do_text(int argc, char *argv[])
     }
 
     size_t len = strlen(text);
-    uint32_t source = 0xDA639B54 + 1;
+    uint32_t source = 0xDA639B00;
     uint32_t packet_id = packet_cnt++;
     send_data((const uint8_t *) text, len, source, packet_id);
 
@@ -189,5 +189,20 @@ void setup(void)
 
 void loop(void)
 {
+    uint8_t packet[256];
+
+    int packetSize = LoRa.parsePacket();
+    if (packetSize > 0) {
+        int index = 0;
+        while (LoRa.available()) {
+            if (index < sizeof(packet)) {
+                packet[index++] = LoRa.read();
+            }
+        }
+        int rssi = LoRa.packetRssi();
+        printf("Received packet with RSSI %d:", rssi);
+        printhex(packet, index);
+    }
+
     shell.process(">", commands);
 }
