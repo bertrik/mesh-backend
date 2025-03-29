@@ -187,13 +187,6 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t packet_id)
     return false;
 }
 
-static int do_init(int argc, char *argv[])
-{
-    bool result = lora_init();
-    printf("LoRa init: %s\n", result ? "OK" : "FAILED");
-    return 0;
-}
-
 static int do_text(int argc, char *argv[])
 {
     uint8_t pb_buf[256];
@@ -228,15 +221,7 @@ static int do_data(int argc, char *argv[])
     return send_data(pb_buf, pb_len, packet_id) ? 0 : -1;
 }
 
-static int do_dump(int argc, char *argv[])
-{
-    LoRa.dumpRegisters(Serial);
-    return 0;
-}
-
 const cmd_t commands[] = {
-    { "init", do_init, "Initialize hardware" },
-    { "dump", do_dump, "Dump registers" },
     { "text", do_text, "[text] send a text message" },
     { "data", do_data, "<len> sends len bytes" },
     { "reboot", do_reboot, "Reboot" },
@@ -253,8 +238,8 @@ static int do_help(int argc, char *argv[])
 void setup(void)
 {
     Serial.begin(115200);
-    Serial.println("Hello ESP32!");
     node_id = get_node_id();
+    printf("Hello, this is %X!\n", node_id);
     lora_init();
 }
 
