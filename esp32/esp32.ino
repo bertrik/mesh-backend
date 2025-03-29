@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <mbedtls/aes.h>
 
+#include <esp_system.h>
+
 #include <MiniShell.h>
 #include <SPI.h>
 #include <LoRa.h>
@@ -9,6 +11,7 @@
 
 static MiniShell shell(&Serial);
 static uint32_t packet_cnt = 0x12345678;
+static uint32_t node_id;
 
 static const uint8_t DEFAULT_KEY[] = {
     0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
@@ -39,6 +42,18 @@ static void printhex(const uint8_t *data, size_t len)
         printf(" %02X", data[i]);
     }
     printf("\n");
+}
+
+static uint32_t get_node_id(void)
+{
+    uint8_t mac[6];
+
+    esp_efuse_mac_get_default(mac);
+    uint32_t id = 0;
+    for (int i = 2; i < 6; i++) {
+        id = (id << 8) | mac[i];
+    }
+    return id;
 }
 
 static bool lora_init(void)
@@ -143,7 +158,7 @@ static size_t encrypt(uint8_t *output, const uint8_t *input, size_t len, const u
     return len;
 }
 
-static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t source, uint32_t packet_id)
+static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t packet_id)
 {
     uint8_t packet[256];
     uint8_t nonce[16];
@@ -153,10 +168,10 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t source, ui
 
     // build header
     uint8_t *p = packet;
-    p += fill_header(p, source, packet_id, 3);
+    p += fill_header(p, node_id, packet_id, 3);
 
     // append encrypted protobuf 
-    build_nonce(nonce, packet_id, source, 0);
+    build_nonce(nonce, packet_id, node_id, 0);
     p += encrypt(p, pb_data, pb_len, DEFAULT_KEY, nonce);
 
     // send buffer
@@ -195,8 +210,7 @@ static int do_text(int argc, char *argv[])
 
     size_t pb_len = pbwrap_text(pb_buf, text);
 
-    uint32_t source = 0xDA639BBB;
-    return send_data(pb_buf, pb_len, source, packet_id) ? 0 : -1;
+    return send_data(pb_buf, pb_len, packet_id) ? 0 : -1;
 }
 
 static int do_data(int argc, char *argv[])
@@ -210,9 +224,8 @@ static int do_data(int argc, char *argv[])
     }
 
     size_t pb_len = pbwrap_data(pb_buf, data, len);
-    uint32_t source = 0xDA639BBB;
     uint32_t packet_id = packet_cnt++;
-    return send_data(pb_buf, pb_len, source, packet_id) ? 0 : -1;
+    return send_data(pb_buf, pb_len, packet_id) ? 0 : -1;
 }
 
 static int do_dump(int argc, char *argv[])
@@ -241,6 +254,7 @@ void setup(void)
 {
     Serial.begin(115200);
     Serial.println("Hello ESP32!");
+    node_id = get_node_id();
     lora_init();
 }
 
