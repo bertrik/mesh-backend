@@ -82,6 +82,10 @@ class PacketHandler:
                 telemetry = meshtastic.telemetry_pb2.Telemetry()
                 telemetry.ParseFromString(payload)
                 print(f"TELEMETRY_APP={telemetry}")
+            case PortNum.TRACEROUTE_APP:
+                route = meshtastic.protobuf.mesh_pb2.RouteDiscovery()
+                route.ParseFromString(payload)
+                print(f"TRACEROUTE_APP={route}")
             case PortNum.NEIGHBORINFO_APP:
                 neighbour = meshtastic.mesh_pb2.Neighbor()
                 neighbour.ParseFromString(payload)
