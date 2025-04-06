@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <mbedtls/aes.h>
 
-#include <esp_system.h>
+#include "CRC.h"
 
 #include <MiniShell.h>
 #include <SPI.h>
@@ -81,6 +81,15 @@ static size_t put_u32_le(uint8_t *buffer, uint32_t value)
     *buffer++ = (value >> 8) & 0xFF;
     *buffer++ = (value >> 16) & 0xFF;
     *buffer++ = (value >> 24) & 0xFF;
+    return 4;
+}
+
+static size_t put_u32_be(uint8_t *buffer, uint32_t value)
+{
+    *buffer++ = (value >> 24) & 0xFF;
+    *buffer++ = (value >> 16) & 0xFF;
+    *buffer++ = (value >> 8) & 0xFF;
+    *buffer++ = (value >> 0) & 0xFF;
     return 4;
 }
 
@@ -170,7 +179,7 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t packet_id)
     uint8_t *p = packet;
     p += fill_header(p, node_id, packet_id, 3);
 
-    // append encrypted protobuf 
+    // append encrypted protobuf
     build_nonce(nonce, packet_id, node_id, 0);
     p += encrypt(p, pb_data, pb_len, DEFAULT_KEY, nonce);
 
@@ -210,11 +219,27 @@ static int do_data(int argc, char *argv[])
 {
     uint8_t data[200];
     uint8_t pb_buf[256];
-    size_t len = (argc > 1) ? atoi(argv[1]) : 20;
+    size_t len = (argc > 1) ? atoi(argv[1]) : 16;
 
+    // create arbitrary byte data
+    uint8_t v = 0;
     for (int i = 0; i < len; i++) {
-        data[i] = i;
+        data[i] = v;
+        v += 0x11;
     }
+
+    // calculate and append CRC
+    uint8_t buf[4];
+    CRC32 crc = CRC32();
+    uint32_t initial = 0x12345678;
+    put_u32_be(buf, initial);
+    crc.add(buf, sizeof(buf));
+    crc.add(data, len);
+    uint32_t crcValue = crc.calc();
+    len += put_u32_be(data + len, crcValue);
+
+    printf("Raw data:");
+    printhex(data, len);
 
     size_t pb_len = pbwrap_data(pb_buf, data, len);
     uint32_t packet_id = packet_cnt++;
