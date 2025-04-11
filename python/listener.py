@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import binascii
 import logging
 import struct
 
@@ -90,8 +91,6 @@ class PacketHandler:
                 neighbour = meshtastic.mesh_pb2.Neighbor()
                 neighbour.ParseFromString(payload)
                 print(f"NEIGHBORINFO_APP={neighbour}")
-            case PortNum.PRIVATE_APP:
-                print(f"PRIVATE_APP={meshdata}")
             case _:
                 print(f"meshdata={meshdata}")
 
@@ -104,6 +103,16 @@ class PacketHandler:
             if self.message_type == '*' or int(self.message_type) == meshdata.portnum:
                 logger.info(f"Got packet: id={packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
                 self.log_meshdata(meshdata)
+            if meshdata.portnum == PortNum.PRIVATE_APP:
+                self.handle_private(meshdata.payload)
+
+    def handle_private(self, data: bytes):
+        data_part = data[:-4]
+        crc_part = data[-4:]
+        initial = 0x12345678
+        crcbuf = struct.pack(">I", initial) + data_part
+        crc = binascii.crc32(crcbuf)
+        print(f"PRIVATE_APP={data_part.hex()},crc={crc_part.hex()} (expected={crc:08x})")
 
 
 class MqttListener:
@@ -126,8 +135,9 @@ class MqttListener:
         except Exception as e:
             print(e)
 
-    def on_message(self, _client, _userdata, msg):
+    def on_message(self, client, _userdata, msg):
         try:
+            print(f"{msg.topic}")
             self.handle_packet(msg.payload)
         except Exception as e:
             logger.warning(f"Caught exception: {e}")
