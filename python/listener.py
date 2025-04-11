@@ -104,32 +104,35 @@ class PacketHandler:
                 logger.info(f"Got packet: id={packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
                 self.log_meshdata(meshdata)
             if meshdata.portnum == PortNum.PRIVATE_APP:
-                self.handle_private(meshdata.payload)
+                codes = [0x0, 0x12345678]
+                for code in codes:
+                    payload = self.attempt_decode(meshdata.payload, code)
+                    if payload:
+                        print(f"Private data for code '{code:08X}': {payload.hex()}")
 
-    def handle_private(self, data: bytes):
-        data_part = data[:-4]
-        crc_part = data[-4:]
-        initial = 0x12345678
-        crcbuf = struct.pack(">I", initial) + data_part
-        crc = binascii.crc32(crcbuf)
-        print(f"PRIVATE_APP={data_part.hex()},crc={crc_part.hex()} (expected={crc:08x})")
+    def attempt_decode(self, data: bytes, code: int) -> bytes | None:
+        payload = data[:-4]
+        crc = struct.unpack(">I", data[-4:])[0]
+        crcbuf = struct.pack(">I", code) + payload
+        actual = binascii.crc32(crcbuf)
+        return payload if crc == actual else None
 
 
 class MqttListener:
-    def __init__(self, broker: str, username: str, password: str, callback):
+    def __init__(self, broker: str, username: str, password: str, channel: str, callback):
         self.broker = broker
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.client.username_pw_set(username, password)
+        self.channel = channel
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         self.handle_packet = callback
 
-    @staticmethod
-    def on_connect(client, _userdata, _flags, _rc, _properties):
+    def on_connect(self, client, _userdata, _flags, _rc, _properties):
         try:
             # msh/REGION/2/e/CHANNELNAME/USERID
             # see https://meshtastic.org/docs/software/integrations/mqtt/#mqtt-topics
-            topic = "msh/+/2/e/+/+"
+            topic = f"msh/+/2/e/{self.channel}/+"
             logger.info(f"Connected, subscribing to uplink topic {topic}...")
             client.subscribe(topic)
         except Exception as e:
@@ -161,12 +164,14 @@ def main():
                         default="*")
     parser.add_argument("-k", "--key", help="Decryption key (base64)",
                         default="AQ==")
+    parser.add_argument("-c", "--channel", help="Channel to listen on ('+' for all)",
+                        default="LongFast")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)-8s: %(message)s")
 
     handler = PacketHandler(args.filter, args.key)
-    listener = MqttListener(args.broker, args.username, args.password, handler.handle_packet)
+    listener = MqttListener(args.broker, args.username, args.password, args.channel, handler.handle_packet)
     listener.run()
 
 
