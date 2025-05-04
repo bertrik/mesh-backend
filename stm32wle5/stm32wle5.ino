@@ -2,18 +2,18 @@
 
 #include "CRC.h"
 
-#include <SubGhz.h>
 #include <MiniShell.h>
-#include <SPI.h>
-#include <LoRa.h>
+#include <RadioLib.h>
 
-#include <aes.h>
+#include "aes.h"
 
 #define printf Serial.printf
 
 static MiniShell shell(&Serial);
 static uint32_t packet_cnt = 0x12345678;
 static uint32_t node_id;
+
+static STM32WLx radio = new STM32WLx_Module();
 
 static const uint8_t DEFAULT_KEY[] = {
     0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
@@ -42,28 +42,29 @@ static void printhex(const uint8_t *data, size_t len)
 
 static uint32_t get_node_id(void)
 {
-    return 0;
+    return HAL_GetUIDw0() ^ HAL_GetUIDw1() ^ HAL_GetUIDw2();
 }
 
 static bool lora_init(void)
 {
-    // SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_CS);
-    SubGhz.SPI.begin();
-
-    LoRa.setSPI(SubGhz.SPI);
-    LoRa.setSPIFrequency(100000L);
-    // LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
-    bool result = LoRa.begin(869525000L);
-    if (result) {
-        LoRa.setSpreadingFactor(11);
-        LoRa.setSignalBandwidth(250E3);
-        LoRa.setCodingRate4(5);
-        LoRa.setSyncWord(0x2B);
-        LoRa.setPreambleLength(16);
-        LoRa.enableCrc();
-        LoRa.disableInvertIQ();
+    radio.setRfSwitchPins(PA4, PA5);
+    int16_t result = radio.begin(869.525);
+    if (result < 0) {
+        return false;
     }
-    return result;
+    radio.setSpreadingFactor(11);
+    radio.setBandwidth(250);
+    radio.setCodingRate(5);
+    radio.setSyncWord(0x2B);
+    radio.setPreambleLength(16);
+    radio.setCRC(1);
+    radio.invertIQ(false);
+    return true;
+}
+
+static int do_init(int argc, char *argv[])
+{
+    return lora_init()? 0 : -1;
 }
 
 static size_t put_u32_le(uint8_t *buffer, uint32_t value)
@@ -172,13 +173,15 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t packet_id)
     size_t len = p - packet;
     printf("Radio data:");
     printhex(packet, len);
-    if (LoRa.beginPacket(false)) {
-        LoRa.write(packet, len);
-        LoRa.endPacket(true);
-        return true;
+    int16_t result = radio.transmit(packet, len);
+    if (result < 0) {
+        printf("transmit() failed!\n");
+        return false;
     }
-    printf("beginPacket failed!\n");
-    return false;
+    // return to read mode
+    radio.startReceive();
+
+    return true;
 }
 
 static int do_text(int argc, char *argv[])
@@ -232,6 +235,7 @@ static int do_data(int argc, char *argv[])
 }
 
 const cmd_t commands[] = {
+    { "init", do_init, "Initialise hardware" },
     { "text", do_text, "[text] send a text message" },
     { "data", do_data, "<len> sends len bytes" },
     { "help", do_help, "Show help" },
@@ -244,30 +248,38 @@ static int do_help(int argc, char *argv[])
     return 0;
 }
 
+static volatile bool recv_flag = false;
+static uint8_t recv_buf[256];
+
+static void packet_received(void)
+{
+    recv_flag = true;
+}
+
 void setup(void)
 {
     Serial.begin(115200);
     node_id = get_node_id();
+    Serial.print("\n\nHello world!\n");
     printf("Hello, this is %X!\n", node_id);
-    lora_init();
+    if (!lora_init()) {
+        printf("lora_init failed!\n");
+    }
+    radio.setPacketReceivedAction(packet_received);
+    radio.startReceive();
 }
 
 void loop(void)
 {
-    uint8_t packet[256];
-
-    int packetSize = LoRa.parsePacket();
-    if (packetSize > 0) {
-        int index = 0;
-        while (LoRa.available()) {
-            if (index < sizeof(packet)) {
-                packet[index++] = LoRa.read();
-            }
+    if (recv_flag) {
+        recv_flag = false;
+        size_t len = radio.getPacketLength();
+        if (len > 0) {
+            printf("Received packet:");
+            radio.readData(recv_buf, len);
+            printhex(recv_buf, len);
         }
-        int rssi = LoRa.packetRssi();
-        printf("Received packet with RSSI %d:", rssi);
-        printhex(packet, index);
     }
-
+    // process command line
     shell.process(">", commands);
 }
