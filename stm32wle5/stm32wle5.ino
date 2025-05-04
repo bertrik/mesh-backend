@@ -1,13 +1,13 @@
 #include <Arduino.h>
 
-// #include <mbedtls/aes.h>
-
 #include "CRC.h"
 
 #include <SubGhz.h>
 #include <MiniShell.h>
 #include <SPI.h>
 #include <LoRa.h>
+
+#include <aes.h>
 
 #define printf Serial.printf
 
@@ -145,20 +145,10 @@ static void build_nonce(uint8_t *nonce, uint32_t packet_id, uint32_t source, uin
 static size_t encrypt(uint8_t *output, const uint8_t *input, size_t len, const uint8_t *aes_key,
                       const uint8_t *nonce)
 {
-#if 0
-    uint8_t stream_block[16];
-    size_t nc_off = 0;
-
-    mbedtls_aes_context aes;
-    mbedtls_aes_init(&aes);
-    mbedtls_aes_setkey_enc(&aes, aes_key, 128);
-    mbedtls_aes_crypt_ctr(&aes, len, &nc_off, (unsigned char *) nonce, stream_block,
-                          (unsigned char *) input, output);
-    mbedtls_aes_free(&aes);
-#else
+    struct AES_ctx ctx;
+    AES_init_ctx_iv(&ctx, aes_key, nonce);
     memcpy(output, input, len);
-#endif
-
+    AES_CTR_xcrypt_buffer(&ctx, output, len);
     return len;
 }
 
