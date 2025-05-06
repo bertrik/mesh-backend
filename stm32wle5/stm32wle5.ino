@@ -275,7 +275,8 @@ void loop(void)
         recv_flag = false;
         size_t len = radio.getPacketLength();
         if (len > 0) {
-            printf("Received packet:");
+            int rssi = radio.getRSSI();
+            printf("Received packet (RSSI: %d):", rssi);
             radio.readData(recv_buf, len);
             printhex(recv_buf, len);
         }
