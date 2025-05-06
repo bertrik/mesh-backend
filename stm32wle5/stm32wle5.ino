@@ -176,12 +176,12 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t packet_id)
     int16_t result = radio.transmit(packet, len);
     if (result < 0) {
         printf("transmit() failed!\n");
-        return false;
     }
+
     // return to read mode
     radio.startReceive();
 
-    return true;
+    return result >= 0;
 }
 
 static int do_text(int argc, char *argv[])
