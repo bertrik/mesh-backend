@@ -3,6 +3,7 @@
 
 #include <MiniShell.h>
 #include <RadioLib.h>
+#include <CRC.h>
 
 #include "aes.h"
 
@@ -206,9 +207,41 @@ static int do_text(int argc, char *argv[])
     return send_data(pb_buf, pb_len, packet_id) ? 0 : -1;
 }
 
+static int do_data(int argc, char *argv[])
+{
+    uint8_t data[200];
+    uint8_t pb_buf[256];
+    size_t len = (argc > 1) ? atoi(argv[1]) : 16;
+
+    // create arbitrary byte data
+    uint8_t v = 0;
+    for (int i = 0; i < len; i++) {
+        data[i] = v;
+        v += 0x11;
+    }
+
+    // calculate and append CRC
+    uint8_t buf[4];
+    CRC32 crc = CRC32();
+    uint32_t initial = 0x12345678;
+    put_u32_be(buf, initial);
+    crc.add(buf, sizeof(buf));
+    crc.add(data, len);
+    uint32_t crcValue = crc.calc();
+    len += put_u32_be(data + len, crcValue);
+
+    printf("Raw data:");
+    printhex(data, len);
+
+    size_t pb_len = pbwrap_data(pb_buf, data, len);
+    uint32_t packet_id = packet_cnt++;
+    return send_data(pb_buf, pb_len, packet_id) ? 0 : -1;
+}
+
 const cmd_t commands[] = {
     { "help", do_help, "Show help" },
     { "text", do_text, "Send text message" },
+    { "data", do_data, "[len] Send data packet" },
     { "init", do_init, "Initialise hardware" },
     { NULL, NULL, NULL }
 };
@@ -217,6 +250,14 @@ static int do_help(int argc, char *argv[])
 {
     show_help(commands);
     return 0;
+}
+
+static volatile bool recv_flag = false;
+static uint8_t recv_buf[256];
+
+static void packet_received(void)
+{
+    recv_flag = true;
 }
 
 void setup(void)
@@ -228,10 +269,23 @@ void setup(void)
     if (!lora_init()) {
         printf("lora_init failed!\n");
     }
+    radio.setPacketReceivedAction(packet_received);
+    radio.startReceive();
 }
 
 void loop(void)
 {
+    if (recv_flag) {
+        recv_flag = false;
+        size_t len = radio.getPacketLength();
+        if (len > 0) {
+            int rssi = radio.getRSSI();
+            printf("Received packet (RSSI: %d):", rssi);
+            radio.readData(recv_buf, len);
+            printhex(recv_buf, len);
+        }
+    }
+
     // process command line
     shell.process(">", commands);
 }
