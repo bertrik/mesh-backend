@@ -53,8 +53,7 @@ class PacketHandler:
         # print(f"(plaintext): {packet.decoded.payload}")
         return packet.decoded
 
-    @staticmethod
-    def log_meshdata(meshdata: meshtastic.mesh_pb2.Data) -> None:
+    def log_meshdata(self, packet: meshtastic.protobuf.mesh_pb2.MeshPacket, meshdata: meshtastic.mesh_pb2.Data) -> None:
         payload = meshdata.payload
         match meshdata.portnum:
             case PortNum.TEXT_MESSAGE_APP:
@@ -102,7 +101,7 @@ class PacketHandler:
         if meshdata:
             if self.message_type == '*' or int(self.message_type) == meshdata.portnum:
                 logger.info(f"Got packet: id={packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
-                self.log_meshdata(meshdata)
+                self.log_meshdata(packet, meshdata)
             if meshdata.portnum == PortNum.PRIVATE_APP:
                 codes = [0x0, 0x12345678]
                 for code in codes:
@@ -111,11 +110,13 @@ class PacketHandler:
                         print(f"Private data for code '{code:08X}': {payload.hex()}")
 
     def attempt_decode(self, data: bytes, code: int) -> bytes | None:
-        payload = data[:-4]
-        crc = struct.unpack(">I", data[-4:])[0]
+        # from message
+        crc = struct.unpack(">I", data[:4])[0]
+        payload = data[4:]
+        # calculated
         crcbuf = struct.pack(">I", code) + payload
-        actual = binascii.crc32(crcbuf)
-        return payload if crc == actual else None
+        calculated = binascii.crc32(crcbuf)
+        return payload if crc == calculated else None
 
 
 class MqttListener:
