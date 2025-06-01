@@ -5,7 +5,9 @@
 #include <RadioLib.h>
 #include <CRC.h>
 
-#include "aes.h"
+#include <Crypto.h>
+#include <AES.h>
+#include <CTR.h>
 
 #define printf Serial.printf
 
@@ -151,10 +153,10 @@ static void build_nonce(uint8_t *nonce, uint32_t packet_id, uint32_t source, uin
 static size_t encrypt(uint8_t *output, const uint8_t *input, size_t len, const uint8_t *aes_key,
                       const uint8_t *nonce)
 {
-    struct AES_ctx ctx;
-    AES_init_ctx_iv(&ctx, aes_key, nonce);
-    memcpy(output, input, len);
-    AES_CTR_xcrypt_buffer(&ctx, output, len);
+    CTR<AES128> ctr;
+    ctr.setKey(aes_key, 16);
+    ctr.setIV(nonce, 16);
+    ctr.decrypt(output, input, len);
     return len;
 }
 
