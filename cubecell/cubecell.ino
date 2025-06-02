@@ -215,22 +215,23 @@ static int do_data(int argc, char *argv[])
     uint8_t pb_buf[256];
     size_t len = (argc > 1) ? atoi(argv[1]) : 16;
 
-    // create arbitrary byte data
+    // prefix "secret" (to be replaced by CRC)
+    uint32_t initial = 0x12345678;
+    uint8_t *p = data;
+    p += put_u32_be(p, initial);
+
+    // append arbitrary byte data
     uint8_t v = 0;
     for (int i = 0; i < len; i++) {
-        data[i] = v;
+        *p++ = v;
         v += 0x11;
     }
+    len = p - data;
 
-    // calculate and append CRC
-    uint8_t buf[4];
+    // calculate and overwrite secret with CRC
     CRC32 crc = CRC32();
-    uint32_t initial = 0x12345678;
-    put_u32_be(buf, initial);
-    crc.add(buf, sizeof(buf));
     crc.add(data, len);
-    uint32_t crcValue = crc.calc();
-    len += put_u32_be(data + len, crcValue);
+    put_u32_be(data, crc.calc());
 
     printf("Raw data:");
     printhex(data, len);
