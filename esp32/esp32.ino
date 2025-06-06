@@ -1,11 +1,12 @@
 #include <Arduino.h>
 #include <mbedtls/aes.h>
 
-#include "CRC.h"
-
 #include <MiniShell.h>
 #include <SPI.h>
 #include <LoRa.h>
+
+#include <Crypto.h>
+#include <BLAKE2s.h>
 
 #define printf Serial.printf
 
@@ -17,6 +18,8 @@ static const uint8_t DEFAULT_KEY[] = {
     0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
     0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01
 };
+
+static const char PASSPHRASE[] = "secret";
 
 static void show_help(const cmd_t *cmds)
 {
@@ -81,15 +84,6 @@ static size_t put_u32_le(uint8_t *buffer, uint32_t value)
     *buffer++ = (value >> 8) & 0xFF;
     *buffer++ = (value >> 16) & 0xFF;
     *buffer++ = (value >> 24) & 0xFF;
-    return 4;
-}
-
-static size_t put_u32_be(uint8_t *buffer, uint32_t value)
-{
-    *buffer++ = (value >> 24) & 0xFF;
-    *buffer++ = (value >> 16) & 0xFF;
-    *buffer++ = (value >> 8) & 0xFF;
-    *buffer++ = (value >> 0) & 0xFF;
     return 4;
 }
 
@@ -222,21 +216,19 @@ static int do_data(int argc, char *argv[])
     size_t len = (argc > 1) ? atoi(argv[1]) : 16;
 
     // create arbitrary byte data
+    uint8_t *p = data + 4;
     uint8_t v = 0;
     for (int i = 0; i < len; i++) {
-        data[i] = v;
+        *p++ = v;
         v += 0x11;
     }
 
-    // calculate and append CRC
-    uint8_t buf[4];
-    CRC32 crc = CRC32();
-    uint32_t initial = 0x12345678;
-    put_u32_be(buf, initial);
-    crc.add(buf, sizeof(buf));
-    crc.add(data, len);
-    uint32_t crcValue = crc.calc();
-    len += put_u32_be(data + len, crcValue);
+    // prefix data with a blake2s hash over the passphrase and the data
+    BLAKE2s blake;
+    blake.update(PASSPHRASE, strlen(PASSPHRASE));
+    blake.update(data + 4, len);
+    blake.finalize(data, 4);
+    len += 4;
 
     printf("Raw data:");
     printhex(data, len);
