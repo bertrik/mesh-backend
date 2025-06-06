@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import base64
-import binascii
+import hashlib
 import logging
 import struct
 
@@ -103,21 +103,24 @@ class PacketHandler:
                 logger.info(f"Got packet: id={packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
                 self.log_meshdata(packet, meshdata)
             if meshdata.portnum == PortNum.PRIVATE_APP:
-                codes = [0x0, 0x12345678]
+                codes = ["secret"]
                 for code in codes:
-                    payload = self.attempt_decode(meshdata.payload, code)
+                    # print(f"trying code {code}")
+                    payload = self.attempt_decode(meshdata.payload, code.encode('ascii'))
                     if payload:
-                        print(f"Private data for code '{code:08X}': {payload.hex()}")
+                        print(f"Private data for code '{code}': {payload.hex()}")
 
-    def attempt_decode(self, data: bytes, code: int) -> bytes | None:
-        # from message
-        crc = struct.unpack(">I", data[:4])[0]
+    def attempt_decode(self, data: bytes, code: bytes) -> bytes | None:
+        # get checksum and payload from message
+        check = data[:4]
         payload = data[4:]
-        # calculated
-        crcbuf = struct.pack(">I", code) + payload
-        calculated = binascii.crc32(crcbuf)
-        return payload if crc == calculated else None
-
+        # calculate expected checksum
+        blake = hashlib.blake2s()
+        blake.update(code)
+        blake.update(payload)
+        digest = blake.digest()
+        calculated = digest[:4]
+        return payload if check == calculated else None
 
 class MqttListener:
     def __init__(self, broker: str, username: str, password: str, channel: str, callback):

@@ -3,11 +3,11 @@
 
 #include <MiniShell.h>
 #include <RadioLib.h>
-#include <CRC.h>
 
 #include <Crypto.h>
 #include <AES.h>
 #include <CTR.h>
+#include <BLAKE2s.h>
 
 #define printf Serial.printf
 
@@ -19,6 +19,8 @@ static const uint8_t DEFAULT_KEY[] = {
     0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
     0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01
 };
+
+static const char PASSPHRASE[] = "secret";
 
 // Use SX1262 radio (used in CubeCell), with SPI pins configured for CubeCell
 static SX1262 radio = new Module(RADIO_NSS,     // NSS pin (e.g. 18)
@@ -215,23 +217,20 @@ static int do_data(int argc, char *argv[])
     uint8_t pb_buf[256];
     size_t len = (argc > 1) ? atoi(argv[1]) : 16;
 
-    // prefix "secret" (to be replaced by CRC)
-    uint32_t initial = 0x12345678;
-    uint8_t *p = data;
-    p += put_u32_be(p, initial);
-
-    // append arbitrary byte data
+    // create arbitrary byte data
+    uint8_t *p = data + 4;
     uint8_t v = 0;
     for (int i = 0; i < len; i++) {
         *p++ = v;
         v += 0x11;
     }
-    len = p - data;
 
-    // calculate and overwrite secret with CRC
-    CRC32 crc = CRC32();
-    crc.add(data, len);
-    put_u32_be(data, crc.calc());
+    // prefix data with a blake2s hash over the passphrase and the data
+    BLAKE2s blake;
+    blake.update(PASSPHRASE, strlen(PASSPHRASE));
+    blake.update(data + 4, len);
+    blake.finalize(data, 4);
+    len += 4;
 
     printf("Raw data:");
     printhex(data, len);
