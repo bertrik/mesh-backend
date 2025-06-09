@@ -1,11 +1,11 @@
 #include <Arduino.h>
-
-#include "CRC.h"
-
 #include <MiniShell.h>
 #include <RadioLib.h>
 
-#include "aes.h"
+#include <Crypto.h>
+#include <AES.h>
+#include <CTR.h>
+#include <BLAKE2s.h>
 
 #define printf Serial.printf
 
@@ -19,6 +19,8 @@ static const uint8_t DEFAULT_KEY[] = {
     0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
     0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01
 };
+
+static const char PASSPHRASE[] = "secret";
 
 static void show_help(const cmd_t *cmds)
 {
@@ -146,10 +148,10 @@ static void build_nonce(uint8_t *nonce, uint32_t packet_id, uint32_t source, uin
 static size_t encrypt(uint8_t *output, const uint8_t *input, size_t len, const uint8_t *aes_key,
                       const uint8_t *nonce)
 {
-    struct AES_ctx ctx;
-    AES_init_ctx_iv(&ctx, aes_key, nonce);
-    memcpy(output, input, len);
-    AES_CTR_xcrypt_buffer(&ctx, output, len);
+    CTR<AES128> ctr;
+    ctr.setKey(aes_key, 16);
+    ctr.setIV(nonce, 16);
+    ctr.decrypt(output, input, len);
     return len;
 }
 
@@ -209,23 +211,20 @@ static int do_data(int argc, char *argv[])
     uint8_t pb_buf[256];
     size_t len = (argc > 1) ? atoi(argv[1]) : 16;
 
-    // prefix "secret" (to be replaced by CRC)
-    uint32_t initial = 0x12345678;
-    uint8_t *p = data;
-    p += put_u32_be(p, initial);
-
-    // append arbitrary byte data
+    // create arbitrary byte data
+    uint8_t *p = data + 4;
     uint8_t v = 0;
     for (int i = 0; i < len; i++) {
         *p++ = v;
         v += 0x11;
     }
-    len = p - data;
 
-    // calculate and overwrite secret with CRC
-    CRC32 crc = CRC32();
-    crc.add(data, len);
-    put_u32_be(data, crc.calc());
+    // prefix data with a blake2s hash over the passphrase and the data
+    BLAKE2s blake;
+    blake.update(PASSPHRASE, strlen(PASSPHRASE));
+    blake.update(data + 4, len);
+    blake.finalize(data, 4);
+    len += 4;
 
     printf("Raw data:");
     printhex(data, len);
