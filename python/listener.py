@@ -99,25 +99,30 @@ class PacketHandler:
         packet = se.packet
         meshdata = self.decode_packet(packet)
         if meshdata:
+            source = getattr(packet, "from")
+            packet_id = packet.id
             if self.message_type == '*' or int(self.message_type) == meshdata.portnum:
-                logger.info(f"Got packet: id={packet.id:08X}, {getattr(packet, "from"):08X} -> {packet.to:08X}")
+                logger.info(f"Got packet: id={packet_id:08X}, {source:08X} -> {packet.to:08X}")
                 self.log_meshdata(packet, meshdata)
             if meshdata.portnum == PortNum.PRIVATE_APP:
-                codes = ["secret"]
-                for code in codes:
-                    # print(f"trying code {code}")
-                    payload = self.attempt_decode(meshdata.payload, code.encode('ascii'))
+                phrases = ["secret"]
+                for phrase in phrases:
+                    payload = self.attempt_decode(meshdata.payload, source, packet_id, phrase.encode('ascii'))
                     if payload:
-                        print(f"Private data for code '{code}': {payload.hex()}")
+                        print(f"Private data for code '{phrase}': {payload.hex()}")
 
-    def attempt_decode(self, data: bytes, code: bytes) -> bytes | None:
+    def attempt_decode(self, data: bytes, source: int, packet_id: int, code: bytes) -> bytes | None:
         # get checksum and payload from message
-        check = data[:4]
-        payload = data[4:]
+        payload = data[:-4]
+        check = data[-4:]
+
         # calculate expected checksum
         blake = hashlib.blake2s()
         blake.update(code)
+        header = struct.pack("<II", source, packet_id)
+        blake.update(header)
         blake.update(payload)
+
         digest = blake.digest()
         calculated = digest[:4]
         return payload if check == calculated else None
