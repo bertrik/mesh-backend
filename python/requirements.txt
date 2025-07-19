@@ -1,5 +1,5 @@
-cryptography~=45.0.2
+cryptography~=45.0.5
 paho-mqtt~=2.1.0
 protobug~=0.3.0
-meshtastic~=2.6.3
+meshtastic~=2.6.4
 protobuf~=6.31.0
