@@ -155,7 +155,7 @@ static size_t encrypt(uint8_t *output, const uint8_t *input, size_t len, const u
     return len;
 }
 
-static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t packet_id)
+static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t node_id, uint32_t packet_id)
 {
     uint8_t packet[256];
     uint8_t nonce[16];
@@ -202,36 +202,42 @@ static int do_text(int argc, char *argv[])
 
     size_t pb_len = pbwrap_text(pb_buf, text);
 
-    return send_data(pb_buf, pb_len, packet_id) ? 0 : -1;
+    return send_data(pb_buf, pb_len, node_id, packet_id) ? 0 : -1;
 }
 
 static int do_data(int argc, char *argv[])
 {
     uint8_t data[200];
     uint8_t pb_buf[256];
+    uint8_t header[16];
     size_t len = (argc > 1) ? atoi(argv[1]) : 16;
+    uint32_t packet_id = packet_cnt++;
 
     // create arbitrary byte data
-    uint8_t *p = data + 4;
+    uint8_t *p = data;
     uint8_t v = 0;
     for (int i = 0; i < len; i++) {
         *p++ = v;
         v += 0x11;
     }
 
-    // prefix data with a blake2s hash over the passphrase and the data
+    // calculate hash: passphrase + header data + payload
     BLAKE2s blake;
+    fill_header(header, node_id, packet_id, 0);
     blake.update(PASSPHRASE, strlen(PASSPHRASE));
-    blake.update(data + 4, len);
-    blake.finalize(data, 4);
-    len += 4;
+    blake.update(header + 4, 8);
+    blake.update(data, len);
+
+    // append hash to data
+    blake.finalize(p, 4);
+    p += 4;
+    len = p - data;
 
     printf("Raw data:");
     printhex(data, len);
 
     size_t pb_len = pbwrap_data(pb_buf, data, len);
-    uint32_t packet_id = packet_cnt++;
-    return send_data(pb_buf, pb_len, packet_id) ? 0 : -1;
+    return send_data(pb_buf, pb_len, node_id, packet_id) ? 0 : -1;
 }
 
 const cmd_t commands[] = {
