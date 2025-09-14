@@ -115,20 +115,12 @@ static size_t fill_header(uint8_t *buffer, uint32_t source, uint32_t packet_id, 
     return p - buffer;
 }
 
-static size_t pbwrap_text(uint8_t *buffer, const char *text)
+// see https://buf.build/meshtastic/protobufs/docs/master:meshtastic#meshtastic.Data
+static size_t pbwrap_data(uint8_t *buffer, int portnum, const uint8_t *data, size_t len)
 {
     uint8_t *p = buffer;
-    p += pb_write_u32(p, 1, 1); // portnum = 1
-    p += pb_write_string(p, 2, text);   // string
-    p += pb_write_u32(p, 9, 1); // bitfield = OK-to-MQTT
-    return p - buffer;
-}
-
-static size_t pbwrap_data(uint8_t *buffer, const uint8_t *data, size_t len)
-{
-    uint8_t *p = buffer;
-    p += pb_write_u32(p, 1, 256);       // portnum = 256
-    p += pb_write_bytes(p, 2, data, len);       // data
+    p += pb_write_u32(p, 1, portnum);   // portnum
+    p += pb_write_bytes(p, 2, data, len);       // payload
     p += pb_write_u32(p, 9, 1); // bitfield = OK-to-MQTT
     return p - buffer;
 }
@@ -195,8 +187,7 @@ static int do_text(int argc, char *argv[])
         text = message;
     }
 
-    size_t pb_len = pbwrap_text(pb_buf, text);
-
+    size_t pb_len = pbwrap_data(pb_buf, 1, (const uint8_t *)text, strlen(text));
     return send_data(pb_buf, pb_len, node_id, packet_id) ? 0 : -1;
 }
 
@@ -231,13 +222,33 @@ static int do_data(int argc, char *argv[])
     printf("Raw data:");
     printhex(data, len);
 
-    size_t pb_len = pbwrap_data(pb_buf, data, len);
+    size_t pb_len = pbwrap_data(pb_buf, 256, data, len);
     return send_data(pb_buf, pb_len, node_id, packet_id) ? 0 : -1;
 }
 
 static int do_user(int argc, char *argv[])
 {
-    return 0;
+    uint8_t user_buf[128];
+    uint8_t pkt_buf[256];
+    char id[16];
+
+    // build 'user' protobuf
+    sprintf(id, "!%x", node_id);
+    uint8_t *p = user_buf;
+    p += pb_write_string(p, 1, id);     // node id
+    p += pb_write_string(p, 2, "Motion detector prototype");
+    p += pb_write_string(p, 3, "MDP1"); // short name
+    p += pb_write_u32(p, 5, 255);       // hardware model = private
+    p += pb_write_u32(p, 7, 1); // role = client-mute
+    p += pb_write_bool(p, 9, 1);        // unmessageable
+    size_t user_len = p - user_buf;
+
+    // wrap in packet structure, for port NODEINFO
+    size_t pkt_len = pbwrap_data(pkt_buf, 4, user_buf, user_len);
+
+    // send with header
+    uint32_t packet_id = packet_cnt++;
+    return send_data(pkt_buf, pkt_len, node_id, packet_id) ? 0 : -1;
 }
 
 const cmd_t commands[] = {
