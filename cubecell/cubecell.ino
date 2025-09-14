@@ -9,6 +9,8 @@
 #include <CTR.h>
 #include <BLAKE2s.h>
 
+#include "protocode.h"
+
 #define printf Serial.printf
 
 static MiniShell shell(&Serial);
@@ -115,32 +117,19 @@ static size_t fill_header(uint8_t *buffer, uint32_t source, uint32_t packet_id, 
 
 static size_t pbwrap_text(uint8_t *buffer, const char *text)
 {
-    uint8_t len = strlen(text);
-
     uint8_t *p = buffer;
-    *p++ = 0x08;                // portnum = 1
-    *p++ = 0x01;
-    *p++ = 0x12;                // payload = byte array
-    *p++ = len;
-    memcpy(p, text, len);
-    p += len;
-    *p++ = 0x48;                // bitfield = OK-to-MQTT
-    *p++ = 0x01;
+    p += pb_write_u32(p, 1, 1); // portnum = 1
+    p += pb_write_string(p, 2, text);   // string
+    p += pb_write_u32(p, 9, 1); // bitfield = OK-to-MQTT
     return p - buffer;
 }
 
 static size_t pbwrap_data(uint8_t *buffer, const uint8_t *data, size_t len)
 {
     uint8_t *p = buffer;
-    *p++ = 0x08;                // portnum = 256
-    *p++ = 0x80;
-    *p++ = 0x02;
-    *p++ = 0x12;                // payload = byte array
-    *p++ = len;
-    memcpy(p, data, len);
-    p += len;
-    *p++ = 0x48;                // bitfield = OK-to-MQTT
-    *p++ = 0x01;
+    p += pb_write_u32(p, 1, 256);       // portnum = 256
+    p += pb_write_bytes(p, 2, data, len);       // data
+    p += pb_write_u32(p, 9, 1); // bitfield = OK-to-MQTT
     return p - buffer;
 }
 
@@ -155,7 +144,7 @@ static void build_nonce(uint8_t *nonce, uint32_t packet_id, uint32_t source, uin
 static size_t encrypt(uint8_t *output, const uint8_t *input, size_t len, const uint8_t *aes_key,
                       const uint8_t *nonce)
 {
-    CTR<AES128> ctr;
+    CTR < AES128 > ctr;
     ctr.setKey(aes_key, 16);
     ctr.setIV(nonce, 16);
     ctr.decrypt(output, input, len);
@@ -246,11 +235,17 @@ static int do_data(int argc, char *argv[])
     return send_data(pb_buf, pb_len, node_id, packet_id) ? 0 : -1;
 }
 
+static int do_user(int argc, char *argv[])
+{
+    return 0;
+}
+
 const cmd_t commands[] = {
     { "help", do_help, "Show help" },
+    { "init", do_init, "Initialise hardware" },
     { "text", do_text, "Send text message" },
     { "data", do_data, "[len] Send data packet" },
-    { "init", do_init, "Initialise hardware" },
+    { "user", do_user, "Send user info" },
     { NULL, NULL, NULL }
 };
 
@@ -293,7 +288,6 @@ void loop(void)
             printhex(recv_buf, len);
         }
     }
-
     // process command line
     shell.process(">", commands);
 }
