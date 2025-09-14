@@ -187,7 +187,7 @@ static int do_text(int argc, char *argv[])
         text = message;
     }
 
-    size_t pb_len = pbwrap_data(pb_buf, 1, (const uint8_t *)text, strlen(text));
+    size_t pb_len = pbwrap_data(pb_buf, 1, (const uint8_t *) text, strlen(text));
     return send_data(pb_buf, pb_len, node_id, packet_id) ? 0 : -1;
 }
 
@@ -236,7 +236,7 @@ static int do_user(int argc, char *argv[])
     sprintf(id, "!%x", node_id);
     uint8_t *p = user_buf;
     p += pb_write_string(p, 1, id);     // node id
-    p += pb_write_string(p, 2, "Motion detector prototype");
+    p += pb_write_string(p, 2, "Motion detector");
     p += pb_write_string(p, 3, "MDP1"); // short name
     p += pb_write_u32(p, 5, 255);       // hardware model = private
     p += pb_write_u32(p, 7, 1); // role = client-mute
@@ -251,12 +251,37 @@ static int do_user(int argc, char *argv[])
     return send_data(pkt_buf, pkt_len, node_id, packet_id) ? 0 : -1;
 }
 
+// see https://buf.build/meshtastic/protobufs/docs/master:meshtastic#meshtastic.Telemetry
+static int do_tele(int argc, char *argv[])
+{
+    char id[16];
+
+    // build 'DeviceMetrics' protobuf
+    uint8_t metrics_buf[16];
+    size_t metrics_len = pb_write_float(metrics_buf, 2, 3.789); // 2 = voltage
+
+    // build 'Telemetry' protobuf
+    uint8_t tele_buf[128];
+    uint8_t *p = tele_buf;
+    p += pb_write_bytes(p, 2, metrics_buf, metrics_len);        // 2 = device metrics
+    size_t tele_len = p - tele_buf;
+
+    // wrap in packet structure, for port TELEMETRY
+    uint8_t pkt_buf[256];
+    size_t pkt_len = pbwrap_data(pkt_buf, 67, tele_buf, tele_len);
+
+    // send with header
+    uint32_t packet_id = packet_cnt++;
+    return send_data(pkt_buf, pkt_len, node_id, packet_id) ? 0 : -1;
+}
+
 const cmd_t commands[] = {
     { "help", do_help, "Show help" },
     { "init", do_init, "Initialise hardware" },
     { "text", do_text, "Send text message" },
     { "data", do_data, "[len] Send data packet" },
     { "user", do_user, "Send user info" },
+    { "tele", do_tele, "Send telemetry" },
     { NULL, NULL, NULL }
 };
 

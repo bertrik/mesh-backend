@@ -84,8 +84,7 @@ size_t pb_write_float(uint8_t *buf, int fieldnr, float f)
 {
     uint8_t *p = buf;
     p += pb_write_tag(p, fieldnr, WIRE_I32);
-
-    uint32_t u32 = *(uint32_t *) & f;
-    p += le_write_u32(buf, *(uint32_t *) & f);
+    p += le_write_u32(p, *(uint32_t *) & f);
     return (p - buf);
 }
+
