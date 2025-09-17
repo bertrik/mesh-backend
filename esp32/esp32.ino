@@ -8,6 +8,8 @@
 #include <Crypto.h>
 #include <BLAKE2s.h>
 
+#include "base64.h"
+
 #define printf Serial.printf
 
 static MiniShell shell(&Serial);
@@ -18,6 +20,7 @@ static const uint8_t DEFAULT_KEY[] = {
     0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
     0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01
 };
+static uint8_t meshtastic_key[16];
 
 static const char PASSPHRASE[] = "secret";
 
@@ -175,7 +178,7 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t node_id, u
 
     // append encrypted protobuf
     build_nonce(nonce, packet_id, node_id, 0);
-    p += encrypt(p, pb_data, pb_len, DEFAULT_KEY, nonce);
+    p += encrypt(p, pb_data, pb_len, meshtastic_key, nonce);
 
     // send buffer
     size_t len = p - packet;
@@ -188,6 +191,24 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t node_id, u
     }
     printf("beginPacket failed!\n");
     return false;
+}
+
+static int do_key(int argc, char *argv[])
+{
+    uint8_t buffer[16];
+
+    if (argc > 1) {
+        memcpy(meshtastic_key, DEFAULT_KEY, 16);
+        size_t len = base64_decode(argv[1], buffer);
+        if ((len > 0) && (len <= 16)) {
+            memcpy(meshtastic_key + 16 - len, buffer, len);
+        }
+    }
+
+    printf("Meshtastic key is now:");
+    printhex(meshtastic_key, 16);
+
+    return 0;
 }
 
 static int do_text(int argc, char *argv[])
@@ -245,6 +266,7 @@ static int do_data(int argc, char *argv[])
 }
 
 const cmd_t commands[] = {
+    { "key", do_key, "<base64> Set custom key" },
     { "text", do_text, "[text] send a text message" },
     { "data", do_data, "<len> sends len bytes" },
     { "reboot", do_reboot, "Reboot" },
@@ -261,6 +283,7 @@ static int do_help(int argc, char *argv[])
 void setup(void)
 {
     Serial.begin(115200);
+    memcpy(meshtastic_key, DEFAULT_KEY, 16);
     node_id = get_node_id();
     printf("Hello, this is %X!\n", node_id);
     lora_init();
