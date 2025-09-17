@@ -160,7 +160,7 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t node_id, u
 
     // append encrypted protobuf
     build_nonce(nonce, packet_id, node_id, 0);
-    p += encrypt(p, pb_data, pb_len, DEFAULT_KEY, nonce);
+    p += encrypt(p, pb_data, pb_len, meshtastic_key, nonce);
 
     // send buffer
     size_t len = p - packet;
