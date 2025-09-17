@@ -10,6 +10,7 @@
 #include <BLAKE2s.h>
 
 #include "protocode.h"
+#include "base64.h"
 
 #define printf Serial.printf
 
@@ -21,6 +22,8 @@ static const uint8_t DEFAULT_KEY[] = {
     0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
     0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01
 };
+
+static uint8_t meshtastic_key[16];
 
 static const char PASSPHRASE[] = "secret";
 
@@ -275,6 +278,25 @@ static int do_tele(int argc, char *argv[])
     return send_data(pkt_buf, pkt_len, node_id, packet_id) ? 0 : -1;
 }
 
+static int do_key(int argc, char *argv[])
+{
+    uint8_t buffer[16];
+
+    if (argc > 1) {
+        memcpy(meshtastic_key, DEFAULT_KEY, 16);
+        size_t len = base64_decode(argv[1], buffer);
+        if ((len > 0) && (len <= 16)) {
+            memcpy(meshtastic_key + 16 - len, buffer, len);
+        }
+    }
+
+    printf("Meshtastic key is now:\n");
+    printhex(meshtastic_key, 16);
+    printf("\n");
+
+    return 0;
+}
+
 const cmd_t commands[] = {
     { "help", do_help, "Show help" },
     { "init", do_init, "Initialise hardware" },
@@ -282,6 +304,7 @@ const cmd_t commands[] = {
     { "data", do_data, "[len] Send data packet" },
     { "user", do_user, "Send user info" },
     { "tele", do_tele, "Send telemetry" },
+    { "key", do_key, "<base64> Set custom key" },
     { NULL, NULL, NULL }
 };
 
@@ -303,6 +326,7 @@ void setup(void)
 {
     Serial.begin(115200);
 
+    memcpy(meshtastic_key, DEFAULT_KEY, 16);
     node_id = get_node_id();
     printf("Node id: 0x%08X\n", node_id);
     if (!lora_init()) {
