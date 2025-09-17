@@ -290,9 +290,8 @@ static int do_key(int argc, char *argv[])
         }
     }
 
-    printf("Meshtastic key is now:\n");
+    printf("Meshtastic key is now:");
     printhex(meshtastic_key, 16);
-    printf("\n");
 
     return 0;
 }

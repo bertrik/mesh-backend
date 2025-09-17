@@ -17,18 +17,21 @@ static int b64_index(char c)
 
 size_t base64_decode(const char *in, uint8_t *out)
 {
-    int len = 0;
-    int val = 0, valb = -8;
-    for (int i = 0; in[i] && in[i] != '='; i++) {
-        int idx = b64_index(in[i]);
-        if (idx == -1) {
-            continue;
-        }
-        val = (val << 6) + idx;
-        valb += 6;
-        if (valb >= 0) {
-            out[len++] = uint8_t((val >> valb) & 0xFF);
-            valb -= 8;
+    size_t len = 0;             // number of output bytes
+    int val = 0;                // working accumulator
+    int bits = -8;              // bit position
+
+    for (; *in && *in != '='; in++) {
+        int idx = b64_index(*in);
+        if (idx < 0)
+            continue;           // skip invalid chars
+
+        val = (val << 6) | idx;
+        bits += 6;
+
+        if (bits >= 0) {
+            out[len++] = uint8_t((val >> bits) & 0xFF);
+            bits -= 8;
         }
     }
     return len;
