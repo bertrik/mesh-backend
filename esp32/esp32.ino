@@ -21,7 +21,10 @@ static const uint8_t DEFAULT_KEY[] = {
     0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
     0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01
 };
-static uint8_t meshtastic_key[16];
+
+static char channel_name[32] = "LongFast";
+static uint8_t channel_key[16];
+static uint8_t channel_hash = 8;
 
 static const char PASSPHRASE[] = "secret";
 
@@ -97,14 +100,14 @@ static size_t put_u8(uint8_t *buffer, uint8_t value)
     return 1;
 }
 
-static size_t fill_header(uint8_t *buffer, uint32_t source, uint32_t packet_id, uint8_t hop)
+static size_t fill_header(uint8_t *buffer, uint32_t source, uint32_t packet_id, uint8_t hop, uint8_t hash)
 {
     uint8_t *p = buffer;
     p += put_u32_le(p, 0xFFFFFFFF);     // destination
     p += put_u32_le(p, source);
     p += put_u32_le(p, packet_id);
     p += put_u8(p, hop | (hop << 5));   // flags
-    p += put_u8(p, 8);          // hash
+    p += put_u8(p, hash);
     p += put_u8(p, 0);          // next-hop
     p += put_u8(p, source & 0xFF);      // relay-node
     return p - buffer;
@@ -154,11 +157,11 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t node_id, u
 
     // build header
     uint8_t *p = packet;
-    p += fill_header(p, node_id, packet_id, 3);
+    p += fill_header(p, node_id, packet_id, 3, channel_hash);
 
     // append encrypted protobuf
     build_nonce(nonce, packet_id, node_id, 0);
-    p += encrypt(p, pb_data, pb_len, meshtastic_key, nonce);
+    p += encrypt(p, pb_data, pb_len, channel_key, nonce);
 
     // send buffer
     size_t len = p - packet;
@@ -173,20 +176,33 @@ static bool send_data(const uint8_t *pb_data, size_t pb_len, uint32_t node_id, u
     return false;
 }
 
-static int do_key(int argc, char *argv[])
+static int do_channel(int argc, char *argv[])
 {
     uint8_t buffer[16];
 
-    if (argc > 1) {
-        memcpy(meshtastic_key, DEFAULT_KEY, 16);
-        size_t len = base64_decode(argv[1], buffer);
+    if (argc > 2) {
+        strlcpy(channel_name, argv[1], sizeof(channel_name));
+        memcpy(channel_key, DEFAULT_KEY, 16);
+        size_t len = base64_decode(argv[2], buffer);
         if ((len > 0) && (len <= 16)) {
-            memcpy(meshtastic_key + 16 - len, buffer, len);
+            memcpy(channel_key + 16 - len, buffer, len);
         }
+
+        // recalculate hash
+        uint8_t hash = 0;
+        for (int i = 0; i < strlen(channel_name); i++) {
+            hash ^= channel_name[i];
+        }
+        for (int i = 0; i < sizeof(channel_key); i++) {
+            hash ^= channel_key[i];
+        }
+        channel_hash = hash;
     }
 
-    printf("Meshtastic key is now:");
-    printhex(meshtastic_key, 16);
+    printf("Channel name: '%s'\n", channel_name);
+    printf("Channel hash: 0x%02X\n", channel_hash);
+    printf("Channel key:");
+    printhex(channel_key, 16);
 
     return 0;
 }
@@ -227,7 +243,6 @@ static int do_data(int argc, char *argv[])
 
     // calculate hash: passphrase + header data + payload
     BLAKE2s blake;
-    fill_header(header, node_id, packet_id, 0);
     blake.update(PASSPHRASE, strlen(PASSPHRASE));
     blake.update(header + 4, 8);
     blake.update(data, len);
@@ -301,7 +316,7 @@ static int do_tele(int argc, char *argv[])
 }
 
 const cmd_t commands[] = {
-    { "key", do_key, "<base64> Set custom key" },
+    { "channel", do_channel, "<name> <base64> Configure channel settings" },
     { "text", do_text, "[text] send a text message" },
     { "data", do_data, "<len> sends len bytes" },
     { "user", do_user, "[user] Send user info" },
@@ -320,7 +335,7 @@ static int do_help(int argc, char *argv[])
 void setup(void)
 {
     Serial.begin(115200);
-    memcpy(meshtastic_key, DEFAULT_KEY, 16);
+    memcpy(channel_key, DEFAULT_KEY, 16);
     node_id = get_node_id();
     printf("Hello, this is %X!\n", node_id);
     lora_init();
