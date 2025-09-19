@@ -243,6 +243,7 @@ static int do_data(int argc, char *argv[])
 
     // calculate hash: passphrase + header data + payload
     BLAKE2s blake;
+    fill_header(header, node_id, packet_id, 0, channel_hash);
     blake.update(PASSPHRASE, strlen(PASSPHRASE));
     blake.update(header + 4, 8);
     blake.update(data, len);
